@@ -1,57 +1,60 @@
+// -- Inclusão de bibliotecas
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
+#include "inc/ssd1306.h"
+#include "inc/font.h"
 #include "hardware/pio.h"
 
-// I2C defines
-// This example will use I2C0 on GPIO8 (SDA) and GPIO9 (SCL) running at 400KHz.
-// Pins can be changed, see the GPIO function select table in the datasheet for information on GPIO assignments
-#define I2C_PORT i2c0
-#define I2C_SDA 8
-#define I2C_SCL 9
+// -- Definição de constantes
+// Display I2C
+#define display_i2c_port i2c1 // Define a porta I2C
+#define display_i2c_sda 14 // Define o pino SDA na GPIO 14
+#define display_i2c_scl 15 // Define o pino SCL na GPIO 15
+#define display_i2c_endereco 0x3C // Define o endereço do I2C
 
-#include "blink.pio.h"
-
-void blink_pin_forever(PIO pio, uint sm, uint offset, uint pin, uint freq) {
-    blink_program_init(pio, sm, offset, pin);
-    pio_sm_set_enabled(pio, sm, true);
-
-    printf("Blinking pin %d at %d Hz\n", pin, freq);
-
-    // PIO counter program takes 3 more cycles in total than we pass as
-    // input (wait for n + 1; mov; jmp)
-    pio->txf[sm] = (125000000 / (2 * freq)) - 3;
-}
-
-
+volatile bool usb_conexao = true; // Auxilia a mensagem inicial aparecer uma única vez no início do programa
 
 int main()
 {
+    // -- Inicializações
+    // Monitor serial
     stdio_init_all();
 
-    // I2C Initialisation. Using it at 400Khz.
-    i2c_init(I2C_PORT, 400*1000);
-    
-    gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
-    gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
-    gpio_pull_up(I2C_SDA);
-    gpio_pull_up(I2C_SCL);
-    // For more examples of I2C use see https://github.com/raspberrypi/pico-examples/tree/master/i2c
+    // Display I2C
+    i2c_init(display_i2c_port, 400 * 1000); // Inicializa o I2C usando 400kHz
+    gpio_set_function(display_i2c_sda, GPIO_FUNC_I2C); // Define o pino SDA (GPIO 14) na função I2C
+    gpio_set_function(display_i2c_scl, GPIO_FUNC_I2C); // Define o pino SCL (GPIO 15) na função I2C
+    gpio_pull_up(display_i2c_sda); // Ativa o resistor de pull up para o pino SDA (GPIO 14)
+    gpio_pull_up(display_i2c_scl); // Ativa o resistor de pull up para o pino SCL (GPIO 15)
+    ssd1306_t ssd; // Inicializa a estrutura do display
+    ssd1306_init(&ssd, WIDTH, HEIGHT, false, display_i2c_endereco, display_i2c_port); // Inicializa o display
+    ssd1306_config(&ssd); // Configura o display
+    ssd1306_send_data(&ssd); // Envia os dados para o display
+    ssd1306_fill(&ssd, false); // Limpa o display
+    ssd1306_send_data(&ssd); // Atualiza o display
 
-    // PIO Blinking example
-    PIO pio = pio0;
-    uint offset = pio_add_program(pio, &blink_program);
-    printf("Loaded program at %d\n", offset);
-    
-    #ifdef PICO_DEFAULT_LED_PIN
-    blink_pin_forever(pio, 0, offset, PICO_DEFAULT_LED_PIN, 3);
-    #else
-    blink_pin_forever(pio, 0, offset, 6, 3);
-    #endif
-    // For more pio examples see https://github.com/raspberrypi/pico-examples/tree/master/pio
+    ssd1306_draw_string(&ssd, "Tarefa   03 02", 8, 4); // Desenha uma string
+    ssd1306_draw_string(&ssd, "Caractere  ", 8, 22); // Desenha uma string
+    ssd1306_draw_string(&ssd, "LED Green  Off", 8, 40); // Desenha uma string
+    ssd1306_draw_string(&ssd, "LED Blue   Off", 8, 52); // Desenha uma string
+    ssd1306_send_data(&ssd); // Atualiza o display
 
     while (true) {
-        printf("Hello, world!\n");
-        sleep_ms(1000);
+        if(stdio_usb_connected()){
+            // Faz a mensagem inicial aparecer uma única vez no ínicio do programa, colocar o printf antes do While não está funcionando
+            if(usb_conexao){
+                printf("\n\n--- USB Conectado - Programa escutando ---\n - Envie um caractere por vez para aparecer no display \n - Entre 0-9, A-Z e a-z\n");
+                usb_conexao = false;
+            }
+            // Recebe o caractere digitado mostra no monitor serial e desenha no display
+            char c;
+            if (scanf("%c", &c) == 1){
+                printf("Caractere recebido: '%c'\n", c);
+                ssd1306_draw_char(&ssd, c, 96, 22); // Desenha um caractere
+                ssd1306_send_data(&ssd); // Atualiza o display
+            }
+        }
+        sleep_ms(50); //
     }
 }
